@@ -1,0 +1,17 @@
+# Variáveis de ambiente — NUNCA subir
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Dependências
+node_modules/
+
+# Build do Next.js
+.next/
+out/
+
+# Misc
+.DS_Store
+*.log
