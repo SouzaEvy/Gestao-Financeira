@@ -25,9 +25,9 @@ async function ensureUser(userId: string, db: any) {
   const email =
     clerkUser?.emailAddresses?.[0]?.emailAddress ?? `${userId}@unknown.com`;
   const full_name =
-    clerkUser?.fullName ??
-    `${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim() ||
-    null;
+  clerkUser?.fullName ??
+  (`${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim() || null);
+  
   const avatar_url = clerkUser?.imageUrl ?? null;
 
   // Upsert — safe to call on every request
