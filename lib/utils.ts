@@ -196,6 +196,7 @@ export const CATEGORY_MAP: Record<string, CategoryDef> = {
   "Tax on financial operations": { pt: "Tarifa / IOF",        color: "#b91c1c", emoji: "🏛️", parent: "impostos" },
   "Tax on Financial Operations": { pt: "Tarifa / IOF",        color: "#b91c1c", emoji: "🏛️", parent: "impostos" },
   "Credit card payment":         { pt: "Fatura cartão",       color: "#991b1b", emoji: "💳", parent: "impostos" },
+  "Credit Card":          { pt: "Fatura cartão",       color: "#991b1b", emoji: "💳", parent: "impostos" },
   "Debt":                 { pt: "Dívida / Empréstimo", color: "#7f1d1d", emoji: "🏦", parent: "impostos" },
   "Bill payment":         { pt: "Pagamento de conta",  color: "#dc2626", emoji: "📄", parent: "impostos" },
   "Bill Payment":         { pt: "Pagamento de conta",  color: "#dc2626", emoji: "📄", parent: "impostos" },
@@ -305,5 +306,3 @@ export function getInitials(name: string): string {
 export function generateBudgetColors(): string[] {
   return ["#0ea5e9","#10b981","#f97316","#a855f7","#ec4899","#f59e0b","#3b82f6","#84cc16"];
 }
- 
- 
