@@ -305,3 +305,5 @@ export function getInitials(name: string): string {
 export function generateBudgetColors(): string[] {
   return ["#0ea5e9","#10b981","#f97316","#a855f7","#ec4899","#f59e0b","#3b82f6","#84cc16"];
 }
+ 
+ 
