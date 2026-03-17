@@ -305,7 +305,6 @@ async function syncItemInBackground(userId: string, itemId: string, db: any) {
           category: tx.category,
           category_pt: catInfo.pt,
           balance: tx.balance,
-          is_credit_card: account.type === "CREDIT",
         });
       }
 
