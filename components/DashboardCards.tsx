@@ -18,9 +18,10 @@ import type { DashboardSummary } from "@/types";
 interface DashboardCardsProps {
   summary: DashboardSummary | null;
   loading?: boolean;
+  balanceAccounts?: Array<{ name: string; balance: number; type: string }>;
 }
 
-export function DashboardCards({ summary, loading }: DashboardCardsProps) {
+export function DashboardCards({ summary, loading, balanceAccounts = [] }: DashboardCardsProps) {
   const cards = [
     {
       title: "Saldo Total",
@@ -77,6 +78,9 @@ export function DashboardCards({ summary, loading }: DashboardCardsProps) {
       prefix: "do limite",
     },
   ];
+
+  const bankAccounts = balanceAccounts.filter((a) => a.type === "BANK");
+  const creditAccounts = balanceAccounts.filter((a) => a.type === "CREDIT");
 
   if (loading) {
     return (
@@ -136,6 +140,32 @@ export function DashboardCards({ summary, loading }: DashboardCardsProps) {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">{card.prefix}</p>
+                )}
+
+                {/* Account breakdown for Saldo Total card */}
+                {i === 0 && balanceAccounts.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border space-y-1">
+                    {bankAccounts.map((acc) => (
+                      <div key={acc.name} className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[110px]">
+                          🏦 {acc.name.trim()}
+                        </span>
+                        <span className={`text-[10px] font-medium tabular-nums ${acc.balance < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                          {formatCurrency(acc.balance)}
+                        </span>
+                      </div>
+                    ))}
+                    {creditAccounts.map((acc) => (
+                      <div key={acc.name} className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[110px]">
+                          💳 {acc.name.trim()}
+                        </span>
+                        <span className="text-[10px] font-medium tabular-nums text-rose-400">
+                          {formatCurrency(acc.balance)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 

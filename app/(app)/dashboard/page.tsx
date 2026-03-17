@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchData } from "@/lib/api";
 import { formatCurrency, formatDate, getCategoryInfo } from "@/lib/utils";
 import type { DashboardSummary, MonthlyChartData, Transaction, ConnectedAccount } from "@/types";
+import { resolvedType, resolvedCategory } from "@/types";
 
 function generateMockChartData(): MonthlyChartData[] {
   return Array.from({ length: 6 }, (_, i) => {
@@ -41,6 +42,110 @@ function generateMockChartData(): MonthlyChartData[] {
 // ─────────────────────────────────────────────
 // Category Breakdown
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Account Split chart — Bank vs Credit Card
+// ─────────────────────────────────────────────
+function AccountSplitChart({
+  transactions,
+  loading,
+}: {
+  transactions: Transaction[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <Skeleton className="h-5 w-40 mb-4" />
+          <Skeleton className="h-32 w-full rounded-lg" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const debits = transactions.filter((t) => resolvedType(t) === "debit");
+  const bankTotal = debits
+    .filter((t) => !t.is_credit_card)
+    .reduce((s, t) => s + Math.abs(t.amount), 0);
+  const cardTotal = debits
+    .filter((t) => t.is_credit_card)
+    .reduce((s, t) => s + Math.abs(t.amount), 0);
+  const total = bankTotal + cardTotal;
+
+  const bankPct = total > 0 ? (bankTotal / total) * 100 : 0;
+  const cardPct = total > 0 ? (cardTotal / total) * 100 : 0;
+
+  const data = [
+    { name: "Conta corrente", value: Math.round(bankTotal), color: "#10b981", emoji: "🏦" },
+    { name: "Cartão de crédito", value: Math.round(cardTotal), color: "#0ea5e9", emoji: "💳" },
+  ].filter((d) => d.value > 0);
+
+  if (data.length === 0) {
+    return (
+      <Card className="border-border">
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <span className="text-2xl mb-2">📊</span>
+          <p className="text-xs text-muted-foreground">Sem despesas no período</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-border">
+      <CardContent className="p-5">
+        <p className="text-sm font-semibold mb-0.5">Conta vs Cartão</p>
+        <p className="text-xs text-muted-foreground mb-4">Distribuição das despesas</p>
+
+        {/* Stacked bar */}
+        <div className="h-8 w-full rounded-lg overflow-hidden flex mb-4">
+          {bankTotal > 0 && (
+            <div
+              className="h-full flex items-center justify-center text-xs font-medium text-white transition-all"
+              style={{ width: `${bankPct}%`, background: "#10b981", minWidth: bankPct > 10 ? "auto" : 0 }}
+            >
+              {bankPct > 15 ? `${bankPct.toFixed(0)}%` : ""}
+            </div>
+          )}
+          {cardTotal > 0 && (
+            <div
+              className="h-full flex items-center justify-center text-xs font-medium text-white transition-all"
+              style={{ width: `${cardPct}%`, background: "#0ea5e9", minWidth: cardPct > 10 ? "auto" : 0 }}
+            >
+              {cardPct > 15 ? `${cardPct.toFixed(0)}%` : ""}
+            </div>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="space-y-2">
+          {[
+            { label: "🏦 Conta corrente", value: bankTotal, pct: bankPct, color: "#10b981" },
+            { label: "💳 Cartão de crédito", value: cardTotal, pct: cardPct, color: "#0ea5e9" },
+          ].filter((d) => d.value > 0).map((item) => (
+            <div key={item.label} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ background: item.color }} />
+                <span style={{ color: "#ffffff" }}>{item.label}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">{item.pct.toFixed(0)}%</span>
+                <span className="font-semibold tabular-nums" style={{ color: "#ffffff" }}>
+                  {formatCurrency(item.value)}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-border">
+            <span className="text-muted-foreground">Total despesas</span>
+            <span className="font-bold" style={{ color: "#f43f5e" }}>{formatCurrency(total)}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CategoryBreakdown({
   transactions,
   loading,
@@ -50,6 +155,8 @@ function CategoryBreakdown({
   loading: boolean;
   selectedMonth: string | null;
 }) {
+  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+
   if (loading) {
     return (
       <Card>
@@ -61,30 +168,37 @@ function CategoryBreakdown({
     );
   }
 
-  // Filter by selected month if any
-  const filtered = selectedMonth
-    ? transactions.filter((t) => t.date.slice(0, 7) === selectedMonth)
-    : transactions;
-
-  const byCategory: Record<string, number> = {};
-  filtered
-    .filter((t) => t.type === "debit")
+  // Build category totals
+  const byCategory: Record<string, { total: number; catKey: string }> = {};
+  transactions
+    .filter((t) => resolvedType(t) === "debit")
     .forEach((t) => {
-      const key = t.category || "Other";
-      byCategory[key] = (byCategory[key] || 0) + Math.abs(t.amount);
+      const key = resolvedCategory(t) || "Other";
+      if (!byCategory[key]) byCategory[key] = { total: 0, catKey: key };
+      byCategory[key].total += Math.abs(t.amount);
     });
 
   const data = Object.entries(byCategory)
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => b[1].total - a[1].total)
     .slice(0, 6)
-    .map(([cat, value]) => {
+    .map(([cat, { total }]) => {
       const info = getCategoryInfo(cat);
-      return { name: info.pt, value: Math.round(value), color: info.color, emoji: info.emoji };
+      return { name: info.pt, catKey: cat, value: Math.round(total), color: info.color, emoji: info.emoji };
     });
+
+  // Transactions for selected category
+  const catTransactions = selectedCat
+    ? transactions.filter((t) => {
+        const cat = resolvedCategory(t) || "Other";
+        return resolvedType(t) === "debit" && cat === selectedCat;
+      }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    : [];
 
   const subtitleMonth = selectedMonth
     ? format(parseISO(selectedMonth + "-01"), "MMMM 'de' yyyy", { locale: ptBR })
     : "Todas as despesas";
+
+  const selectedCatInfo = selectedCat ? getCategoryInfo(selectedCat) : null;
 
   if (data.length === 0) {
     return (
@@ -100,14 +214,53 @@ function CategoryBreakdown({
   return (
     <Card className="border-border">
       <CardContent className="p-5">
-        <p className="text-base font-semibold mb-0.5">Por categoria</p>
-        <p className="text-xs text-muted-foreground mb-3 capitalize">{subtitleMonth}</p>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-0.5">
+          <p className="text-base font-semibold">Por categoria</p>
+          {selectedCat && (
+            <button
+              onClick={() => setSelectedCat(null)}
+              className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"
+            >
+              ← Ver todas
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mb-3 capitalize">
+          {selectedCat && selectedCatInfo
+            ? `${selectedCatInfo.emoji} ${selectedCatInfo.pt} · ${subtitleMonth}`
+            : subtitleMonth}
+        </p>
+
+        {/* Pie chart */}
         <div className="h-44">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value">
+              <Pie
+                data={data}
+                cx="50%"
+                cy="50%"
+                innerRadius={48}
+                outerRadius={72}
+                paddingAngle={3}
+                dataKey="value"
+                onClick={(entry) => {
+                  setSelectedCat(
+                    selectedCat === entry.catKey ? null : entry.catKey
+                  );
+                }}
+                style={{ cursor: "pointer" }}
+              >
                 {data.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} opacity={0.9} />
+                  <Cell
+                    key={i}
+                    fill={entry.color}
+                    opacity={
+                      !selectedCat || selectedCat === entry.catKey ? 0.9 : 0.2
+                    }
+                    stroke={selectedCat === entry.catKey ? "#ffffff" : "none"}
+                    strokeWidth={selectedCat === entry.catKey ? 2 : 0}
+                  />
                 ))}
               </Pie>
               <Tooltip
@@ -117,26 +270,68 @@ function CategoryBreakdown({
                   border: "1px solid hsl(222 47% 14%)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                  color: "hsl(213 31% 91%)",
+                  color: "#e2e8f0",
                 }}
+                labelStyle={{ color: "#94a3b8", marginBottom: "4px" }}
+                itemStyle={{ color: "#e2e8f0" }}
               />
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div className="space-y-2 mt-2">
-          {data.map((item) => (
-            <div key={item.name} className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full shrink-0" style={{ background: item.color }} />
-                {/* ✅ Cor do texto mais clara */}
-                <span className="truncate max-w-[110px]" style={{ color: "#ffffff" }}>
-                  {item.emoji} {item.name}
+
+        {/* Legend OR transaction list */}
+        {!selectedCat ? (
+          // Default: category legend
+          <div className="space-y-1.5 mt-2">
+            {data.map((item) => (
+              <button
+                key={item.catKey}
+                onClick={() => setSelectedCat(item.catKey)}
+                className="w-full flex items-center justify-between text-xs hover:bg-accent/30 rounded-md px-1 py-1 transition-colors group"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ background: item.color }} />
+                  <span className="truncate max-w-[110px] group-hover:text-sky-400 transition-colors" style={{ color: "#ffffff" }}>
+                    {item.emoji} {item.name}
+                  </span>
+                </div>
+                <span className="font-semibold tabular-nums" style={{ color: "#ffffff" }}>
+                  {formatCurrency(item.value)}
                 </span>
-              </div>
-              <span className="font-semibold tabular-nums" style={{ color: "#ffffff" }}>{formatCurrency(item.value)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          // Selected: transaction list for that category
+          <div className="mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">
+                {catTransactions.length} transaç{catTransactions.length !== 1 ? "ões" : "ão"}
+              </span>
+              <span className="text-xs font-semibold" style={{ color: selectedCatInfo?.color }}>
+                {formatCurrency(catTransactions.reduce((s, t) => s + Math.abs(t.amount), 0))}
+              </span>
             </div>
-          ))}
-        </div>
+            <div className="space-y-0 max-h-[160px] overflow-y-auto">
+              {catTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0"
+                >
+                  <div className="flex-1 min-w-0 pr-2">
+                    <p className="text-xs truncate" style={{ color: "#e2e8f0" }}>
+                      {tx.description.replace(/^(COMPRA CARTAO - No estabelecimento |PIX ENVIADO - Cp :[0-9]+-|PIX ENVIADO   |DEBITO VISA ELECTRON BRASIL\s+\d{2}\/\d{2}\s+)/, "").slice(0, 40)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{formatDate(tx.date)}</p>
+                  </div>
+                  <span className="text-xs font-semibold tabular-nums text-rose-400 shrink-0">
+                    -{formatCurrency(Math.abs(tx.amount))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -151,26 +346,35 @@ export default function DashboardPage() {
   const [syncing, setSyncing] = useState(false);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null); // null = todas
   const [chartData, setChartData] = useState<MonthlyChartData[]>([]);
+  const [realBalance, setRealBalance] = useState<number | null>(null);
+  const [balanceAccounts, setBalanceAccounts] = useState<Array<{ name: string; balance: number; type: string }>>([]);
   // Selected month from chart click — "yyyy-MM" or null = all
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const [accountsData, txData] = await Promise.all([
+      const [accountsData, txData, balanceRes] = await Promise.all([
         fetchData<ConnectedAccount>("connected_accounts"),
         fetchData<Transaction>("transactions", { noDateFilter: true }),
+        fetch("/api/balance").then((r) => r.json()).catch(() => ({ totalBalance: null })),
       ]);
+
+      if (balanceRes?.totalBalance !== undefined && balanceRes.totalBalance !== null) {
+        setRealBalance(balanceRes.totalBalance);
+        setBalanceAccounts(balanceRes.accounts ?? []);
+      }
       setAccounts(accountsData);
       setAllTransactions(txData);
 
-      // Build chart data grouped by month
+      // Build chart data — will be recalculated reactively via accountFilteredTx
       const byMonth: Record<string, { rec: number; desp: number; key: string }> = {};
       txData.forEach((t) => {
         const m = t.date.slice(0, 7);
         if (!byMonth[m]) byMonth[m] = { rec: 0, desp: 0, key: m };
-        if (t.type === "credit") byMonth[m].rec += t.amount;
+        if (resolvedType(t) === "credit") byMonth[m].rec += t.amount;
         else byMonth[m].desp += Math.abs(t.amount);
       });
 
@@ -203,27 +407,60 @@ export default function DashboardPage() {
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
-  // ── Derived data filtered by selectedMonth ──
+  // ── Derived data: filter by account then by month ──
+  const accountFilteredTx = useMemo(() => {
+    if (!selectedAccountId) return allTransactions;
+    return allTransactions.filter((t) => t.item_id === selectedAccountId);
+  }, [allTransactions, selectedAccountId]);
+
+  // Recalculate chart when account filter changes
+  const reactiveChartData = useMemo(() => {
+    if (accountFilteredTx.length === 0) return chartData;
+    const byMonth: Record<string, { rec: number; desp: number }> = {};
+    accountFilteredTx.forEach((t) => {
+      const m = t.date.slice(0, 7);
+      if (!byMonth[m]) byMonth[m] = { rec: 0, desp: 0 };
+      if (resolvedType(t) === "credit") byMonth[m].rec += t.amount;
+      else byMonth[m].desp += Math.abs(t.amount);
+    });
+    const sortedMonths = Object.keys(byMonth).sort().slice(-6);
+    if (sortedMonths.length === 0) return chartData;
+    return sortedMonths.map((m) => {
+      const d = parseISO(m + "-01");
+      const { rec, desp } = byMonth[m];
+      return {
+        month: format(d, "MMM/yy", { locale: ptBR }),
+        monthKey: m,
+        receitas: Math.round(rec),
+        despesas: Math.round(desp),
+        economia: Math.round(rec - desp),
+      };
+    });
+  }, [accountFilteredTx, chartData]);
+
   const filteredTransactions = useMemo(() => {
-    if (!selectedMonth) return allTransactions;
-    return allTransactions.filter((t) => t.date.slice(0, 7) === selectedMonth);
-  }, [allTransactions, selectedMonth]);
+    if (!selectedMonth) return accountFilteredTx;
+    return accountFilteredTx.filter((t) => t.date.slice(0, 7) === selectedMonth);
+  }, [accountFilteredTx, selectedMonth]);
 
   const summary = useMemo((): DashboardSummary => {
     const txs = filteredTransactions;
-    const debits = txs.filter((t) => t.type === "debit");
-    const credits = txs.filter((t) => t.type === "credit");
+    const debits = txs.filter((t) => resolvedType(t) === "debit");
+    const credits = txs.filter((t) => resolvedType(t) === "credit");
     const monthlyExpenses = debits.reduce((s, t) => s + Math.abs(t.amount), 0);
-    const monthlyIncome = credits.reduce((s, t) => s + t.amount, 0);
+    const monthlyIncome = credits.reduce((s, t) => s + Math.abs(t.amount), 0);
 
-    // Balance from latest transaction per account
-    const latestByAccount: Record<string, number> = {};
-    allTransactions.forEach((t) => {
-      if (t.balance != null && !(t.account_id in latestByAccount)) {
-        latestByAccount[t.account_id] = t.balance;
-      }
-    });
-    const totalBalance = Object.values(latestByAccount).reduce((a, b) => a + b, 0);
+    // Use real balance from Pluggy API if available
+    // Falls back to last known tx balance
+    const totalBalance = realBalance ?? (() => {
+      const latestByAccount: Record<string, number> = {};
+      accountFilteredTx.forEach((t) => {
+        if (t.balance != null && !(t.account_id in latestByAccount)) {
+          latestByAccount[t.account_id] = t.balance;
+        }
+      });
+      return Object.values(latestByAccount).reduce((a, b) => a + b, 0);
+    })();
 
     return {
       totalBalance,
@@ -232,7 +469,7 @@ export default function DashboardPage() {
       budgetUsagePercent: 0,
       balanceChange: monthlyIncome - monthlyExpenses,
     };
-  }, [filteredTransactions, allTransactions]);
+  }, [filteredTransactions, accountFilteredTx, realBalance]);
 
   const handleSync = async () => {
     if (accounts.length === 0) return;
@@ -321,38 +558,79 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ── Month indicator ── */}
-        {selectedMonth && !loading && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Visualizando:</span>
-            <Badge
-              variant="outline"
-              className="gap-1.5 border-sky-500/30 bg-sky-500/10 text-sky-400 cursor-pointer capitalize"
-              onClick={() => setSelectedMonth(null)}
-            >
-              📅 {selectedMonthLabel} · clique para ver tudo ✕
-            </Badge>
+        {/* ── Account + Month filters ── */}
+        {(accounts.length > 1 || selectedMonth) && !loading && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Filtros:</span>
+
+            {/* Account filter — only show if more than 1 account */}
+            {accounts.length > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={`cursor-pointer px-3 py-1 gap-1.5 transition-all ${
+                    !selectedAccountId
+                      ? "border-sky-500/50 bg-sky-500/15 text-sky-400"
+                      : "border-border text-muted-foreground hover:border-sky-500/30"
+                  }`}
+                  onClick={() => setSelectedAccountId(null)}
+                >
+                  🏦 Todas as contas
+                </Badge>
+                {accounts.map((acc) => (
+                  <Badge
+                    key={acc.id}
+                    variant="outline"
+                    className={`cursor-pointer px-3 py-1 gap-1.5 transition-all ${
+                      selectedAccountId === acc.item_id
+                        ? "border-sky-500/50 bg-sky-500/15 text-sky-400"
+                        : "border-border text-muted-foreground hover:border-sky-500/30"
+                    }`}
+                    onClick={() => setSelectedAccountId(
+                      selectedAccountId === acc.item_id ? null : acc.item_id
+                    )}
+                  >
+                    {acc.name}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Month filter */}
+            {selectedMonth && (
+              <Badge
+                variant="outline"
+                className="gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-400 cursor-pointer capitalize"
+                onClick={() => setSelectedMonth(null)}
+              >
+                📅 {selectedMonthLabel} ✕
+              </Badge>
+            )}
           </div>
         )}
 
         {/* Summary cards — reactive to selectedMonth */}
-        <DashboardCards summary={summary} loading={loading} />
+        <DashboardCards summary={summary} loading={loading} balanceAccounts={balanceAccounts} />
 
-        {/* Chart + Category */}
+        {/* Chart + Category + Account Split */}
         <div className="grid gap-4 lg:grid-cols-5">
           <div className="lg:col-span-3">
             <BalanceChart
-              data={chartData}
+              data={reactiveChartData}
               loading={loading}
               selectedMonth={selectedMonth}
               onMonthClick={(monthKey) => setSelectedMonth(monthKey === selectedMonth ? null : monthKey)}
             />
           </div>
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 flex flex-col gap-4">
             <CategoryBreakdown
-              transactions={allTransactions}
+              transactions={filteredTransactions}
               loading={loading}
               selectedMonth={selectedMonth}
+            />
+            <AccountSplitChart
+              transactions={filteredTransactions}
+              loading={loading}
             />
           </div>
         </div>

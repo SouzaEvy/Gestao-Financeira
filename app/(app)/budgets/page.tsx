@@ -26,6 +26,7 @@ import {
 import { fetchData } from "@/lib/api";
 import { formatCurrency, getCategoryInfo, startOfCurrentMonth, endOfCurrentMonth } from "@/lib/utils";
 import type { Budget, Transaction } from "@/types";
+import { resolvedType } from "@/types";
 
 const CATEGORY_OPTIONS = [
   "Food", "Transport", "Health", "Entertainment",
@@ -145,7 +146,7 @@ export default function BudgetsPage() {
   };
 
   const totalBudget = budgets.reduce((s, b) => s + b.monthly_limit, 0);
-  const totalSpent = transactions.filter((t) => t.type === "debit").reduce((s, t) => s + Math.abs(t.amount), 0);
+  const totalSpent = transactions.filter((t) => resolvedType(t) === "debit").reduce((s, t) => s + Math.abs(t.amount), 0);
   const overallPercent = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   const usedCategories = budgets.map((b) => b.category);
 
@@ -203,7 +204,7 @@ export default function BudgetsPage() {
           ) : (
             <div className="space-y-3">
               {budgets.map((budget) => {
-                const spent = transactions.filter((t) => t.type === "debit" && t.category === budget.category).reduce((s, t) => s + Math.abs(t.amount), 0);
+                const spent = transactions.filter((t) => resolvedType(t) === "debit" && (t.custom_category ?? t.category) === budget.category).reduce((s, t) => s + Math.abs(t.amount), 0);
                 const percent = Math.min((spent / budget.monthly_limit) * 100, 100);
                 const isOver = spent > budget.monthly_limit;
                 const cat = getCategoryInfo(budget.category);

@@ -23,13 +23,13 @@ const CustomTooltip = ({ active, payload, label }: {
 }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-border bg-card/95 backdrop-blur-sm p-3 shadow-xl">
-      <p className="text-xs font-medium text-muted-foreground mb-2">{label}</p>
+    <div style={{ background: "hsl(222 47% 9%)", border: "1px solid hsl(222 47% 14%)", borderRadius: "12px", padding: "10px 14px", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+      <p style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "6px" }}>{label}</p>
       {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2 text-sm">
-          <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-muted-foreground capitalize">{p.name}:</span>
-          <span className="font-semibold text-foreground">{formatCurrency(p.value)}</span>
+        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
+          <span style={{ height: "8px", width: "8px", borderRadius: "50%", background: p.color, flexShrink: 0 }} />
+          <span style={{ color: "#94a3b8", textTransform: "capitalize" }}>{p.name}:</span>
+          <span style={{ fontWeight: 600, color: "#e2e8f0" }}>{formatCurrency(p.value)}</span>
         </div>
       ))}
     </div>

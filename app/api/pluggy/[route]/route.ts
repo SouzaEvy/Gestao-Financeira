@@ -25,9 +25,9 @@ async function ensureUser(userId: string, db: any) {
   const email =
     clerkUser?.emailAddresses?.[0]?.emailAddress ?? `${userId}@unknown.com`;
   const full_name =
-  clerkUser?.fullName ??
-  (`${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim() || null);
-  
+    clerkUser?.fullName ??
+    `${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim() ||
+    null;
   const avatar_url = clerkUser?.imageUrl ?? null;
 
   // Upsert — safe to call on every request
@@ -219,28 +219,97 @@ async function syncItemInBackground(userId: string, itemId: string, db: any) {
 
     const accounts = await getAccounts(itemId);
 
+    // Load deleted pluggy_ids to skip during sync
+    const { data: deletedRows } = await db
+      .from("deleted_transactions")
+      .select("pluggy_id")
+      .eq("user_id", userId);
+    const deletedIds = new Set((deletedRows ?? []).map((r: { pluggy_id: string }) => r.pluggy_id));
+
     for (const account of accounts) {
       // Fetch ALL transactions (all pages, no date filter)
       const transactions = await getAllTransactions(account.id);
 
       if (transactions.length === 0) continue;
 
-      const rows = transactions.map((tx) => {
+      // Skip manually deleted transactions
+      // Also skip credit card bill payments from checking account
+      // (the individual purchases are imported separately from the card account)
+      const BILL_PAYMENT_PATTERNS = [
+        /PAGAMENTO DE FATURA/i,
+        /PAGAMENTO CARTAO/i,
+        /PAGTO CARTAO/i,
+        /PAGTO FATURA/i,
+        /PAYMENT CREDIT CARD/i,
+        /BILL PAYMENT/i,
+        /FATURA CARTAO/i,
+        /FATURA CREDITO/i,
+      ];
+
+      const isBillPayment = (tx: { description: string; category: string | null }) => {
+        if (tx.category === "Credit card payment" || tx.category === "Credit card") return true;
+        return BILL_PAYMENT_PATTERNS.some((p) => p.test(tx.description));
+      };
+
+      const filtered = transactions.filter((tx) =>
+        !deletedIds.has(tx.id) && !isBillPayment(tx)
+      );
+
+      // Dedup: skip transactions with same date + amount + type
+      // that already exist in DB (avoids double-import of card payment)
+      const { data: existingTx } = await db
+        .from("transactions")
+        .select("date, amount, type, pluggy_id")
+        .eq("user_id", userId)
+        .eq("account_id", account.id);
+
+      // Build a signature set of existing transactions
+      // signature = "date|amount|type"
+      const existingSigs = new Set(
+        (existingTx ?? []).map((t: { date: string; amount: number; type: string; pluggy_id: string }) =>
+          `${t.date}|${Math.abs(t.amount)}|${t.type}`
+        )
+      );
+
+      const rows: Record<string, unknown>[] = [];
+      const newSigs = new Set<string>();
+
+      for (const tx of filtered) {
+        const amount = tx.type === "CREDIT" ? tx.amount : -Math.abs(tx.amount);
+        const date = tx.date.split("T")[0];
+        const sig = `${date}|${Math.abs(amount)}|${tx.type.toLowerCase()}`;
+
+        // Skip if exact duplicate already in DB (different pluggy_id, same date/amount/type)
+        // BUT always allow if this pluggy_id already exists (it's an update)
+        const alreadyInDb = existingTx?.find(
+          (t: { pluggy_id: string }) => t.pluggy_id === tx.id
+        );
+
+        if (!alreadyInDb && existingSigs.has(sig) && newSigs.has(sig)) {
+          // True duplicate — skip
+          console.log(`[sync] Skipping duplicate: ${tx.description} ${sig}`);
+          continue;
+        }
+
+        newSigs.add(sig);
         const catInfo = getCategoryInfo(tx.category);
-        return {
+        rows.push({
           user_id: userId,
           account_id: account.id,
           item_id: itemId,
           pluggy_id: tx.id,
-          date: tx.date.split("T")[0],
+          date,
           description: tx.description,
-          amount: tx.type === "CREDIT" ? tx.amount : -Math.abs(tx.amount),
-          type: tx.type.toLowerCase() as "credit" | "debit",
+          amount,
+          type: tx.type.toLowerCase(),
           category: tx.category,
           category_pt: catInfo.pt,
           balance: tx.balance,
-        };
-      });
+          is_credit_card: account.type === "CREDIT",
+        });
+      }
+
+      if (rows.length === 0) continue;
 
       await db
         .from("transactions")

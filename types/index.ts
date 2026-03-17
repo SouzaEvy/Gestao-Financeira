@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────
-// Database types (mirrors Supabase schema)
+// Database types
 // ─────────────────────────────────────────────
 
 export interface DbUser {
-  id: string; // Clerk userId
+  id: string;
   email: string;
   full_name: string | null;
   avatar_url: string | null;
@@ -13,9 +13,9 @@ export interface DbUser {
 export interface ConnectedAccount {
   id: string;
   user_id: string;
-  item_id: string; // Pluggy itemId
+  item_id: string;
   connector_id: number;
-  name: string; // e.g. "Nubank"
+  name: string;
   logo_url: string | null;
   status: "updated" | "updating" | "login_error" | "outdated";
   last_synced_at: string | null;
@@ -25,17 +25,43 @@ export interface ConnectedAccount {
 export interface Transaction {
   id: string;
   user_id: string;
-  account_id: string; // Pluggy accountId
+  account_id: string;
   item_id: string;
-  pluggy_id: string; // Pluggy transaction id
-  date: string; // ISO
+  pluggy_id: string;
+  date: string;
   description: string;
-  amount: number; // positive = credit, negative = debit
-  type: "credit" | "debit";
-  category: string | null;
-  category_pt: string | null; // Portuguese name
+  amount: number;
+  type: "credit" | "debit";           // original from Pluggy
+  custom_type: "credit" | "debit" | null; // user override
+  category: string | null;            // original from Pluggy
+  custom_category: string | null;     // user override
+  category_pt: string | null;
   balance: number | null;
   ignored: boolean;
+  is_credit_card: boolean;
+  created_at: string;
+}
+
+// Computed helpers
+export function resolvedType(tx: Transaction): "credit" | "debit" {
+  if (tx.custom_type) return tx.custom_type;
+  // Also infer from amount sign as fallback
+  if (tx.amount > 0) return "credit";
+  if (tx.amount < 0) return "debit";
+  return tx.type;
+}
+
+export function resolvedCategory(tx: Transaction): string | null {
+  return tx.custom_category ?? tx.category;
+}
+
+export interface CustomCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  name_pt: string;
+  emoji: string;
+  color: string;
   created_at: string;
 }
 
@@ -50,94 +76,21 @@ export interface Budget {
   updated_at: string;
 }
 
-// ─────────────────────────────────────────────
-// Pluggy API types
-// ─────────────────────────────────────────────
-
-export interface PluggyConnector {
-  id: number;
-  name: string;
-  institutionUrl: string;
-  imageUrl: string;
-  primaryColor: string;
-  country: string;
-}
-
-export interface PluggyAccount {
-  id: string;
-  itemId: string;
-  name: string;
-  type: "BANK" | "CREDIT" | "INVESTMENT";
-  subtype: string;
-  number: string;
-  balance: number;
-  currencyCode: string;
-  marketingName: string | null;
-  owner: string | null;
-}
-
-export interface PluggyTransaction {
-  id: string;
-  accountId: string;
-  description: string;
-  descriptionRaw: string | null;
-  currencyCode: string;
-  amount: number;
-  amountInAccountCurrency: number;
-  date: string;
-  balance: number | null;
-  category: string | null;
-  type: "CREDIT" | "DEBIT";
-  status: "POSTED" | "PENDING";
-  paymentData: {
-    payer?: { name?: string; documentNumber?: { value: string; type: string } };
-    receiver?: { name?: string };
-    paymentMethod?: string;
-    referenceNumber?: string;
-  } | null;
-}
-
-export interface PluggyItem {
-  id: string;
-  connector: PluggyConnector;
-  status: string;
-  executionStatus: string;
-  createdAt: string;
-  updatedAt: string;
-  lastUpdatedAt: string | null;
-}
-
-// ─────────────────────────────────────────────
-// Dashboard aggregation types
-// ─────────────────────────────────────────────
-
 export interface DashboardSummary {
   totalBalance: number;
   monthlyExpenses: number;
   monthlySavings: number;
   budgetUsagePercent: number;
-  balanceChange: number; // today's variation
-}
-
-export interface CategoryExpense {
-  category: string;
-  category_pt: string;
-  amount: number;
-  count: number;
-  color: string;
+  balanceChange: number;
 }
 
 export interface MonthlyChartData {
-  month: string;    // display label e.g. "mar/26"
-  monthKey?: string; // "yyyy-MM" for filtering e.g. "2026-03"
+  month: string;
+  monthKey?: string;
   receitas: number;
   despesas: number;
   economia: number;
 }
-
-// ─────────────────────────────────────────────
-// Form types
-// ─────────────────────────────────────────────
 
 export interface BudgetFormValues {
   category: string;

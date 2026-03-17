@@ -14,11 +14,13 @@ import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 
 import { fetchData } from "@/lib/api";
-import { formatCurrency, getCategoryInfo } from "@/lib/utils";
+import { formatCurrency, getCategoryInfo, getCategoriesGrouped } from "@/lib/utils";
 import type { Transaction } from "@/types";
+import { resolvedType } from "@/types";
 
 // Build a list of month options from the last 12 months + "Todos"
 function buildMonthOptions() {
@@ -43,11 +45,22 @@ export default function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [creditFilter, setCreditFilter] = useState("all"); // "all" | "credit_card" | "debit_account"
   const [showIgnored, setShowIgnored] = useState(false);
 
   const handleIgnoreChange = (id: string, ignored: boolean) => {
     setAllTransactions((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ignored } : t))
+    );
+  };
+
+  const handleDelete = (id: string) => {
+    setAllTransactions((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleTransactionUpdate = (id: string, updates: Partial<import("@/types").Transaction>) => {
+    setAllTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
     );
   };
 
@@ -76,15 +89,19 @@ export default function TransactionsPage() {
       if (categoryFilter !== "all" && tx.category !== categoryFilter) return false;
 
       // Type
-      if (typeFilter !== "all" && tx.type !== typeFilter) return false;
+      if (typeFilter !== "all" && resolvedType(tx) !== typeFilter) return false;
+
+      // Credit card filter
+      if (creditFilter === "credit_card" && !tx.is_credit_card) return false;
+      if (creditFilter === "debit_account" && tx.is_credit_card) return false;
 
       return true;
     });
-  }, [allTransactions, search, categoryFilter, typeFilter, monthFilter]);
+  }, [allTransactions, search, categoryFilter, typeFilter, monthFilter, creditFilter]);
 
   const totals = useMemo(() => {
-    const credits = filtered.filter((t) => t.type === "credit").reduce((s, t) => s + t.amount, 0);
-    const debits = filtered.filter((t) => t.type === "debit").reduce((s, t) => s + Math.abs(t.amount), 0);
+    const credits = filtered.filter((t) => resolvedType(t) === "credit").reduce((s, t) => s + Math.abs(t.amount), 0);
+    const debits = filtered.filter((t) => resolvedType(t) === "debit").reduce((s, t) => s + Math.abs(t.amount), 0);
     return { credits, debits };
   }, [filtered]);
 
@@ -121,7 +138,7 @@ export default function TransactionsPage() {
       tx.date,
       `"${tx.description.replace(/"/g, '""')}"`,
       getCategoryInfo(tx.category).pt,
-      tx.type === "credit" ? "Receita" : "Despesa",
+      resolvedType(tx) === "credit" ? "Receita" : "Despesa",
       Math.abs(tx.amount).toFixed(2).replace(".", ","),
     ]);
     const csv = [headers, ...rows].map((r) => r.join(";")).join("\n");
@@ -134,13 +151,14 @@ export default function TransactionsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const hasFilters = search || categoryFilter !== "all" || typeFilter !== "all" || monthFilter !== "all";
+  const hasFilters = search || categoryFilter !== "all" || typeFilter !== "all" || monthFilter !== "all" || creditFilter !== "all";
 
   const clearFilters = () => {
     setSearch("");
     setCategoryFilter("all");
     setTypeFilter("all");
     setMonthFilter("all");
+    setCreditFilter("all");
   };
 
   const selectedMonthLabel = monthOptions.find((m) => m.value === monthFilter)?.label ?? "Todos os períodos";
@@ -215,19 +233,30 @@ export default function TransactionsPage() {
 
               {/* Category */}
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[180px] h-9">
+                <SelectTrigger className="w-[190px] h-9">
                   <SelectValue placeholder="Todas categorias" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas categorias</SelectItem>
-                  {availableCategories.map((c) => {
-                    const info = getCategoryInfo(c);
-                    return (
-                      <SelectItem key={c} value={c}>
-                        {info.emoji} {info.pt}
-                      </SelectItem>
-                    );
-                  })}
+                <SelectContent className="max-h-80">
+                  <SelectItem value="all">Todas as categorias</SelectItem>
+                  <Separator className="my-1" />
+                  {getCategoriesGrouped()
+                    .filter((group) =>
+                      group.items.some((item) => availableCategories.includes(item.key))
+                    )
+                    .map((group) => (
+                      <div key={group.groupKey}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-popover sticky top-0">
+                          {group.groupEmoji} {group.groupPt}
+                        </div>
+                        {group.items
+                          .filter((item) => availableCategories.includes(item.key))
+                          .map((item) => (
+                            <SelectItem key={item.key} value={item.key} className="pl-6">
+                              {item.emoji} {item.pt}
+                            </SelectItem>
+                          ))}
+                      </div>
+                    ))}
                 </SelectContent>
               </Select>
 
@@ -253,6 +282,24 @@ export default function TransactionsPage() {
                   <X className="h-3.5 w-3.5" /> Limpar tudo
                 </Button>
               )}
+
+              {/* Credit card filter toggle */}
+              <button
+                onClick={() => setCreditFilter(
+                  creditFilter === "all" ? "credit_card" :
+                  creditFilter === "credit_card" ? "debit_account" : "all"
+                )}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-sm transition-all ${
+                  creditFilter === "credit_card"
+                    ? "border-sky-500/50 bg-sky-500/10 text-sky-400"
+                    : creditFilter === "debit_account"
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+              >
+                {creditFilter === "credit_card" ? "💳 Cartão" :
+                 creditFilter === "debit_account" ? "🏦 Conta" : "💳 / 🏦"}
+              </button>
 
               <Button
                 variant="outline"
@@ -315,6 +362,15 @@ export default function TransactionsPage() {
                     {typeFilter === "credit" ? "✅ Receitas" : "❌ Despesas"} <X className="h-2.5 w-2.5" />
                   </Badge>
                 )}
+                {creditFilter !== "all" && (
+                  <Badge
+                    variant="secondary"
+                    className="text-xs gap-1 cursor-pointer"
+                    onClick={() => setCreditFilter("all")}
+                  >
+                    {creditFilter === "credit_card" ? "💳 Cartão" : "🏦 Conta"} <X className="h-2.5 w-2.5" />
+                  </Badge>
+                )}
               </div>
             )}
           </CardContent>
@@ -329,6 +385,8 @@ export default function TransactionsPage() {
           scrollable={false}
           showIgnored={showIgnored}
           onIgnoreChange={handleIgnoreChange}
+          onTransactionUpdate={handleTransactionUpdate}
+          onDelete={handleDelete}
         />
       </main>
     </div>
