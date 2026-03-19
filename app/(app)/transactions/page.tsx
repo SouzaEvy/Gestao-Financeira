@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 
 import { fetchData } from "@/lib/api";
+import { DateRangePicker, type DateRange } from "@/components/DateRangePicker";
 import { formatCurrency, getCategoryInfo, getCategoriesGrouped } from "@/lib/utils";
 import type { Transaction } from "@/types";
 import { resolvedType } from "@/types";
@@ -45,6 +46,8 @@ export default function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [dateRange, setDateRange] = useState<DateRange | null>(null);
+  const [dateMode, setDateMode] = useState<"liquidation" | "competence">("liquidation");
   const [creditFilter, setCreditFilter] = useState("all"); // "all" | "credit_card" | "debit_account"
   const [showIgnored, setShowIgnored] = useState(false);
 
@@ -73,13 +76,35 @@ export default function TransactionsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Extract date from description for competence mode
+  // e.g. "DEBITO VISA ELECTRON BRASIL 28/02 LOJA" → "28/02" → month "02"
+  const getCompetenceMonth = (tx: Transaction): string => {
+    const match = tx.description.match(/(\d{2})\/(\d{2})/);
+    if (match) {
+      const month = match[2];
+      // Use the year from tx.date, but month from description
+      const year = tx.date.slice(0, 4);
+      // If tx is in March but description says 02, competence is Feb of same year
+      const txMonth = parseInt(tx.date.slice(5, 7));
+      const descMonth = parseInt(month);
+      // If description month is greater than tx month, it might be previous year
+      const competenceYear = descMonth > txMonth + 1 ? String(parseInt(year) - 1) : year;
+      return `${competenceYear}-${month.padStart(2, "0")}`;
+    }
+    return tx.date.slice(0, 7); // fallback to liquidation date
+  };
+
   const filtered = useMemo(() => {
     return allTransactions.filter((tx) => {
-      // Month filter — compare "yyyy-MM" prefix of the date string directly
-      // avoids timezone issues entirely
-      if (monthFilter !== "all") {
-        const txMonth = tx.date.slice(0, 7); // "2026-03"
+      // Date range filter (takes priority over month filter)
+      if (dateRange) {
+        if (tx.date < dateRange.from || tx.date > dateRange.to) return false;
+      } else if (monthFilter !== "all") {
+        const txMonth = dateMode === "competence"
+          ? getCompetenceMonth(tx)
+          : tx.date.slice(0, 7);
         if (txMonth !== monthFilter) return false;
+      }
       }
 
       // Search
@@ -97,7 +122,7 @@ export default function TransactionsPage() {
 
       return true;
     });
-  }, [allTransactions, search, categoryFilter, typeFilter, monthFilter, creditFilter]);
+  }, [allTransactions, search, categoryFilter, typeFilter, monthFilter, creditFilter, dateMode, dateRange]);
 
   const totals = useMemo(() => {
     const credits = filtered.filter((t) => resolvedType(t) === "credit").reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -107,24 +132,35 @@ export default function TransactionsPage() {
 
   // Get months that actually have data
   const availableMonths = useMemo(() => {
-    const months = new Set(allTransactions.map((t) => t.date.slice(0, 7)));
+    const months = new Set(
+      allTransactions.map((t) =>
+        dateMode === "competence" ? getCompetenceMonth(t) : t.date.slice(0, 7)
+      )
+    );
     return Array.from(months).sort().reverse();
-  }, [allTransactions]);
+  }, [allTransactions, dateMode]);
 
   // Build month options only for months with data
   const monthOptions = useMemo(() => {
+    // Count transactions per month for display
+    const countByMonth: Record<string, number> = {};
+    allTransactions.forEach((tx) => {
+      const m = tx.date.slice(0, 7);
+      countByMonth[m] = (countByMonth[m] || 0) + 1;
+    });
+
     return [
-      { value: "all", label: "Todos os períodos" },
+      { value: "all", label: `Todos os períodos (${allTransactions.length})` },
       ...availableMonths.map((m) => {
         const d = parseISO(m + "-01");
         const label = format(d, "MMMM 'de' yyyy", { locale: ptBR });
         return {
           value: m,
-          label: label.charAt(0).toUpperCase() + label.slice(1),
+          label: `${label.charAt(0).toUpperCase() + label.slice(1)} (${countByMonth[m] || 0})`,
         };
       }),
     ];
-  }, [availableMonths]);
+  }, [availableMonths, allTransactions]);
 
   // Get unique categories from actual data
   const availableCategories = useMemo(() => {
@@ -151,7 +187,7 @@ export default function TransactionsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const hasFilters = search || categoryFilter !== "all" || typeFilter !== "all" || monthFilter !== "all" || creditFilter !== "all";
+  const hasFilters = search || categoryFilter !== "all" || typeFilter !== "all" || monthFilter !== "all" || creditFilter !== "all" || !!dateRange;
 
   const clearFilters = () => {
     setSearch("");
@@ -159,6 +195,7 @@ export default function TransactionsPage() {
     setTypeFilter("all");
     setMonthFilter("all");
     setCreditFilter("all");
+    setDateRange(null);
   };
 
   const selectedMonthLabel = monthOptions.find((m) => m.value === monthFilter)?.label ?? "Todos os períodos";
@@ -216,8 +253,34 @@ export default function TransactionsPage() {
                 />
               </div>
 
-              {/* Month picker */}
-              <Select value={monthFilter} onValueChange={setMonthFilter}>
+              {/* Date mode toggle */}
+              <button
+                onClick={() => {
+                  setDateMode(dateMode === "liquidation" ? "competence" : "liquidation");
+                  setMonthFilter("all"); // reset month filter when switching mode
+                }}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-xs transition-all whitespace-nowrap ${
+                  dateMode === "competence"
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                title={dateMode === "liquidation" ? "Usando data de liquidação — clique para usar data de competência" : "Usando data de competência — clique para usar data de liquidação"}
+              >
+                {dateMode === "competence" ? "📅 Competência" : "📅 Liquidação"}
+              </button>
+
+              {/* Date range picker */}
+              <DateRangePicker
+                value={dateRange}
+                onChange={(range) => {
+                  setDateRange(range);
+                  if (range) setMonthFilter("all"); // clear month filter when range is set
+                }}
+                placeholder="Período personalizado"
+              />
+
+              {/* Month picker — hidden when date range active */}
+              {!dateRange && <Select value={monthFilter} onValueChange={setMonthFilter}>
                 <SelectTrigger className="w-[200px] h-9 gap-1.5">
                   <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <SelectValue />
@@ -229,7 +292,7 @@ export default function TransactionsPage() {
                     </SelectItem>
                   ))}
                 </SelectContent>
-              </Select>
+              </Select>}
 
               {/* Category */}
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>

@@ -462,14 +462,61 @@ export default function DashboardPage() {
       return Object.values(latestByAccount).reduce((a, b) => a + b, 0);
     })();
 
+    // Economia real = variação do saldo no período
+    // Usa o campo "balance" das transações (saldo após cada transação)
+    // que é histórico e correto para qualquer mês
+    const allSortedByDate = [...accountFilteredTx]
+      .filter((t) => t.balance != null)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let monthlySavings = monthlyIncome - monthlyExpenses; // fallback
+
+    if (allSortedByDate.length > 0) {
+      if (selectedMonth) {
+        // Para um mês específico:
+        // saldo fim = balance da última transação DO mês
+        // saldo início = balance da última transação ANTES do mês
+        const firstDayOfMonth = selectedMonth + "-01";
+        const lastDayOfMonth = selectedMonth + "-31"; // conservador
+
+        const txsInMonth = allSortedByDate.filter(
+          (t) => t.date >= firstDayOfMonth && t.date <= lastDayOfMonth
+        );
+        const txsBeforeMonth = allSortedByDate.filter(
+          (t) => t.date < firstDayOfMonth
+        );
+
+        const balanceEndOfMonth = txsInMonth.length > 0
+          ? txsInMonth[txsInMonth.length - 1].balance!
+          : null;
+
+        const balanceStartOfMonth = txsBeforeMonth.length > 0
+          ? txsBeforeMonth[txsBeforeMonth.length - 1].balance!
+          : null;
+
+        if (balanceEndOfMonth != null && balanceStartOfMonth != null) {
+          monthlySavings = balanceEndOfMonth - balanceStartOfMonth;
+        } else if (balanceEndOfMonth != null && balanceStartOfMonth == null) {
+          // Primeiro mês com dados — usa receitas - despesas
+          monthlySavings = monthlyIncome - monthlyExpenses;
+        }
+      } else {
+        // Sem mês selecionado (todos os períodos):
+        // variação total = saldo mais recente - saldo mais antigo
+        const oldest = allSortedByDate[0].balance!;
+        const newest = allSortedByDate[allSortedByDate.length - 1].balance!;
+        monthlySavings = newest - oldest;
+      }
+    }
+
     return {
       totalBalance,
       monthlyExpenses,
-      monthlySavings: monthlyIncome - monthlyExpenses,
+      monthlySavings,
       budgetUsagePercent: 0,
-      balanceChange: monthlyIncome - monthlyExpenses,
+      balanceChange: monthlySavings,
     };
-  }, [filteredTransactions, accountFilteredTx, realBalance]);
+  }, [filteredTransactions, accountFilteredTx, realBalance, selectedMonth]);
 
   const handleSync = async () => {
     if (accounts.length === 0) return;
