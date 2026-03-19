@@ -205,7 +205,7 @@ export default function TransactionsPage() {
       <main className="flex-1 overflow-y-auto p-6 space-y-5">
 
         {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             {
               label: "Transações",
@@ -239,7 +239,7 @@ export default function TransactionsPage() {
         {/* Filters */}
         <Card className="border-border">
           <CardContent className="p-4">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
 
               {/* Search */}
               <div className="relative flex-1 min-w-[200px]">
@@ -269,6 +269,7 @@ export default function TransactionsPage() {
               </button>
 
               {/* Date range picker */}
+              <div className="w-full sm:w-auto">
               <DateRangePicker
                 value={dateRange}
                 onChange={(range) => {
@@ -277,10 +278,11 @@ export default function TransactionsPage() {
                 }}
                 placeholder="Período personalizado"
               />
+              </div>
 
               {/* Month picker — hidden when date range active */}
               {!dateRange && <Select value={monthFilter} onValueChange={setMonthFilter}>
-                <SelectTrigger className="w-[200px] h-9 gap-1.5">
+                <SelectTrigger className="w-full sm:w-[200px] h-9 gap-1.5">
                   <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <SelectValue />
                 </SelectTrigger>
@@ -324,7 +326,7 @@ export default function TransactionsPage() {
 
               {/* Type */}
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-[140px] h-9">
+                <SelectTrigger className="w-full sm:w-[140px] h-9">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -375,7 +377,7 @@ export default function TransactionsPage() {
                 variant="outline"
                 size="sm"
                 onClick={exportCSV}
-                className="gap-1.5 h-9 ml-auto"
+                className="gap-1.5 h-9 w-full sm:w-auto sm:ml-auto"
                 disabled={filtered.length === 0}
               >
                 <Download className="h-3.5 w-3.5" />
