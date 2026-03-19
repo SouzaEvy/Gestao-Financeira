@@ -105,7 +105,6 @@ export default function TransactionsPage() {
           : tx.date.slice(0, 7);
         if (txMonth !== monthFilter) return false;
       }
-      }
 
       // Search
       if (search && !tx.description.toLowerCase().includes(search.toLowerCase())) return false;
